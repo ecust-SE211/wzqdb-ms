@@ -22,4 +22,9 @@
 		background-color: palegreen;
 		overflow: hidden;
 	}
+
+	.icon {
+		height: 1em;
+		width: 1em;
+	}
 </style>
