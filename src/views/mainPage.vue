@@ -14,7 +14,6 @@
 	} from 'vue-router'
 	const store = useStore();
 	const router = useRouter();
-	alert(route.params.dbName);
 	if (store.state.websocket.socket == null) {
 		router.push('/')
 	}
