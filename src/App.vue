@@ -19,8 +19,18 @@
 		-moz-osx-font-smoothing: grayscale;
 		width: 100vw;
 		height: 100vh;
-		background-color: palegreen;
+		/* background-color: palegreen; */
 		overflow: hidden;
+		background: #f0f0f0;
+	}
+
+	a {
+		text-decoration: none;
+	}
+
+	.container {
+		width: 100vw;
+		height: 100vh;
 	}
 
 	.icon {

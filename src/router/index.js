@@ -7,7 +7,7 @@ const routes = [{
 	name: "主页",
 	component: () => import('../views/indexPage.vue')
 }, {
-	path: '/studio',
+	path: '/:connectName',
 	name: "工作页面",
 	component: () => import('../views/mainPage.vue')
 }]

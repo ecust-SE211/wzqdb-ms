@@ -3,6 +3,7 @@
 import {
 	app,
 	protocol,
+	Menu,
 	BrowserWindow
 } from 'electron'
 import {
@@ -21,15 +22,16 @@ protocol.registerSchemesAsPrivileged([{
 		standard: true
 	}
 }])
-
+global.win = null;
 async function createWindow() {
-	const win = new BrowserWindow({
+	win = new BrowserWindow({
 		width: 800,
 		height: 600,
+		// autoHideMenuBar: true,
 		webPreferences: {
 			nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION,
-			contextIsolation: !process.env.ELECTRON_NODE_INTEGRATION
-			webSecurity: false, // 允许跨域访问
+			contextIsolation: !process.env.ELECTRON_NODE_INTEGRATION,
+			webSecurity: false // 允许跨域访问
 		},
 	})
 
@@ -37,7 +39,7 @@ async function createWindow() {
 		// Load the url of the dev server if in development mode
 		await win.loadURL(process.env.WEBPACK_DEV_SERVER_URL)
 		// 不自动打开控制台
-		// if (!process.env.IS_TEST) win.webContents.openDevTools()
+		if (!process.env.IS_TEST) win.webContents.openDevTools()
 	} else {
 		createProtocol('app')
 		win.loadURL('app://./index.html')
@@ -63,6 +65,14 @@ app.on('ready', async () => {
 			console.error('Vue Devtools failed to install:', e.toString())
 		}
 	}
+	const template = [{
+		label: "DevelopTool",
+		click:()=>{
+			win.webContents.openDevTools()
+		}
+	}]
+	const menu = Menu.buildFromTemplate(template);
+	Menu.setApplicationMenu(menu);
 	createWindow()
 })
 
