@@ -11,6 +11,7 @@
 	* {
 		margin: 0;
 		padding: 0;
+		box-sizing: border-box;
 	}
 
 	#app {
@@ -19,7 +20,6 @@
 		-moz-osx-font-smoothing: grayscale;
 		width: 100vw;
 		height: 100vh;
-		/* background-color: palegreen; */
 		overflow: hidden;
 		background: #f0f0f0;
 	}

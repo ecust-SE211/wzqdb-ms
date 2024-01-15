@@ -2,15 +2,15 @@
 	<el-container class="container">
 		<el-aside class="aside">
 			<el-scrollbar>
-				<l-affix :offset="0">
+				<div>
 					<router-link to="/">
 						<el-button class="aside-header" type="primary" text>
 							Close connect.
 						</el-button>
 					</router-link>
-				</l-affix>
+				</div>
 				<el-menu>
-					<el-sub-menu v-for="(database,index_db) in databases" :index="index_db" :key="index_db"
+					<el-sub-menu v-for="(database,index_db) in databases" :index="`${index_db}`" :key="index_db"
 						:db_name="database.name" :class="{'activate':database.is_activate}">
 						<template #title>
 							<svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"
@@ -28,7 +28,8 @@
 							<span style="margin-left: 0.25rem;">{{database.name}}</span>
 						</template>
 						<el-menu-item v-for="(table,index_tb) in database.tables" :index="`${index_db}-${index_tb}`"
-							@click="select(index_db,index_tb)" :key="index_tb" style="height: 2rem;">
+							@click="select(index_db,index_tb)" @mousedown="clickTable($event,index_db,index_tb)"
+							:key="index_tb" style="height: 2rem;">
 							<svg class="icon" xmlns="http://www.w3.org/2000/svg" xml:space="preserve"
 								style="enable-background:new 0 0 1024 1024;" viewBox="0 0 1024 1024" data-v-ea893728="">
 								<path fill="currentColor"
@@ -47,12 +48,18 @@
 				</el-menu>
 			</el-scrollbar>
 		</el-aside>
-		<el-container>
-			<el-header>Header</el-header>
+		<el-container style="border-left: 1px solid #e4e7e4;">
+			<el-header class="tools">Header</el-header>
 			<el-main class="main">
 				<el-tabs v-model="selectedTab" type="card" closable>
 					<el-tab-pane v-for="(item,index) in tabs" :key="index" :label="item.title">
-						<div>
+						<div v-if="item.type==1">
+							<!-- <el-table :data="viewTableData">
+								<el-table-column v-for="(prop,index_p) of item.column" :key="index_p"
+									:label="prop"></el-table-column>
+							</el-table> -->
+						</div>
+						<div v-if="item.type==2">
 
 						</div>
 					</el-tab-pane>
@@ -60,26 +67,59 @@
 			</el-main>
 		</el-container>
 	</el-container>
+	<div class="rightClick_menu" :style="{top:`${tPosition}px`,left:`${lPosition}px`}" v-show="showRightClickMenu">
+		<div @click="viewTable()">
+			<el-text>View Tabel</el-text>
+		</div>
+		<div @click="altTable()">
+			<el-text>Edit Table</el-text>
+		</div>
+		<div @click="newTable()">
+			<el-text>New Table</el-text>
+		</div>
+		<div @click="dropTable()">
+			<el-text>Drop Table</el-text>
+		</div>
+	</div>
 </template>
 
 <script setup>
 	import {
-		ElMessage
+		ElMessage,
+		ElMessageBox
 	} from 'element-plus';
 	import {
 		ref,
 		onMounted,
+		// computed,
 		reactive
 	} from 'vue';
 	import {
 		useRoute,
 		useRouter
 	} from 'vue-router'
+	import axios from '../axios.js'
 	// 验证路由
 	const route = useRoute()
 	const router = useRouter();
 	const connectName = route.params.connectName;
 	const recentConnect = JSON.parse(localStorage.getItem(connectName))
+	const sqlRequest = async (sql) => {
+		try {
+			console.log(sql)
+			const response = await axios.post(`http://${recentConnect.url}/sql/execute`, {
+				sql: sql
+			}, {
+				headers: {
+					'Content-Type': 'application/json'
+				}
+			});
+			return response.data; // 返回异步请求的数据
+		} catch (error) {
+			alert(error); // 捕获错误并进行处理
+			return null; // 或者返回一个默认值
+		}
+	};
 	recentConnect.date = Date.now();
 	if (recentConnect == null) {
 		ElMessage.error('Unknown Connect.')
@@ -89,22 +129,14 @@
 	}
 	// 数据库信息获取
 	const databases = reactive([])
-	var db_dic = {}
-	console.log(databases[0]);
-	const loadDataBase = (index) => {
-		databases[index].tables = [{
-			name: "table-1"
-		}, {
-			name: "table-2"
-		}, {
-			name: "table-3"
-		}]
-		databases[index].is_activate = true;
-		return true
-	}
+	var db_dic = {};
 	const getDataBases = async () => {
-		const rspn = `["user","other","unOpened"]`;
-		const database_names = JSON.parse(rspn);
+		let rspn = await sqlRequest("show databases;");
+		if (rspn == null) {
+			return;
+		}
+		rspn = rspn.split('\n')
+		const database_names = rspn.filter(item => item !== '');
 		databases.splice(0, databases.length)
 		for (const database_name of database_names) {
 			databases.push({
@@ -112,27 +144,186 @@
 				is_activate: false
 			})
 		}
-		console.log(JSON.parse(rspn))
+	}
+	const loadDataBase = (index) => {
+		sqlRequest(`use database ${databases[index].name};`);
+		let rspn = await sqlRequest("show tables;");
+		if (rspn == null) {
+			return;
+		}
+		rspn = rspn.split('\n')
+		const table_names = rspn.filter(item => item !== '')
+		databases[index].tables = [{
+			name: "table-1",
+			column: [{
+				name: "id",
+				type: "int",
+				primary_key: true
+			}, {
+				name: "name",
+				type: "string",
+				primary_key: false
+			}],
+			is_activate: false,
+			data: []
+		}, {
+			name: "table-2",
+			column: [{
+				name: "id",
+				type: "int",
+				primary_key: true
+			}, {
+				name: "name",
+				type: "string",
+				primary_key: false
+			}],
+			is_activate: false,
+			data: []
+		}, {
+			name: "table-3",
+			column: [{
+				name: "id",
+				type: "int",
+				primary_key: true
+			}, {
+				name: "name",
+				type: "string",
+				primary_key: false
+			}]
+		}]
+		databases[index].is_activate = true;
+		return true
 	}
 	// 选择具体的表
+	/**type:
+	 * 1: 查看表
+	 * 2: 新建表
+	 * 3: 编辑表 (弃用)
+	 */
 	const current_table = ref()
 	const selectedTab = ref()
 	const tabs = reactive([{
-		title: "tab-1",
+		title: "Show table-1",
 		type: "1",
+		database_name: "user",
+		table_name: "table-1",
 		data: {
-
+			column: [{
+				name: "id",
+				type: "int",
+				primary_key: true
+			}, {
+				name: "name",
+				type: "string",
+				primary_key: false
+			}],
+			initialValue: [{
+				id: 1,
+				name: "王占全"
+			}, {
+				id: 2,
+				name: "王维佳"
+			}],
+			update: [{
+				index: 1,
+				alterations: {
+					name: "王唯佳"
+				}
+			}],
+			new: [{
+				id: 3,
+				name: "张小勤"
+			}]
 		}
 	}, {
 		title: "tab-2",
 		type: "2",
-		data: {}
+		database_name: "user",
+		table_name: "table-1",
+		data: {
+			column: [{
+				name: "id",
+				type: "int",
+				primary_key: true
+			}, {
+				name: "name",
+				type: "string",
+				primary_key: false
+			}],
+		}
 	}])
+	// const viewTableData = computed(() => {
+	// 	let data = tabs[selectedTab].data;
+	// 	let tableData = data.initialValue;
+	// 	for (const changeInfo of tableData.update) {
+	// 		for (const attr of Object.keys(changeInfo.alterations)) {
+	// 			tableData[changeInfo.index] = changeInfo.alterations[attr];
+	// 		}
+	// 	}
+	// 	tableData.push([...tableData.new]);
+	// 	return tableData;
+	// })
+	// const x = ref()
+	// const createViewTableData = (table) => {
+	// 	return computed(() => {
+	// 		x.value * num
+	// 	})
+	// }
 	const select = (index_db, index_tb) => {
 		index_db = parseInt(index_db)
 		index_tb = parseInt(index_tb)
-		alert(databases[index_db].tables[index_tb].name)
 		current_table.value = databases[index_db].tables[index_tb].name
+	}
+	// 右键表
+	const showRightClickMenu = ref(false);
+	const tPosition = ref(0)
+	const lPosition = ref(0)
+	var rightClickTable = ""
+	const clickTable = (event, index_db, index_tb) => {
+		if (event.button != 2) return;
+		index_db = parseInt(index_db)
+		index_tb = parseInt(index_tb)
+		rightClickTable = databases[index_db].tables[index_tb].name
+		showRightClickMenu.value = true
+		tPosition.value = event.clientY;
+		lPosition.value = event.clientX;
+	}
+	const newTable = () => {
+		tabs.push({
+			title: "New Table"
+		})
+	}
+	const altTable = () => {
+		tabs.push({
+			title: `Edit ${rightClickTable}`
+		})
+	}
+	const viewTable = () => {
+		tabs.push({
+			title: `View ${rightClickTable}`
+		})
+	}
+	const dropTable = () => {
+		ElMessageBox.confirm(
+				"This operation will permanently delete the table, continue?", 'Confirm', {
+					confirmButtonText: 'OK',
+					cancelButtonText: 'Cancel',
+					type: 'warning',
+					center: true,
+				}
+			)
+			.then(() => {
+				ElMessage({
+					type: 'success',
+					message: 'Delete completed',
+				})
+			})
+			.catch(() => {
+				ElMessage({
+					type: 'info',
+					message: 'Delete canceled',
+				})
+			})
 	}
 	onMounted(async () => {
 		await getDataBases();
@@ -153,6 +344,9 @@
 			const clickHandler = createClickHandler(i, dbBtns[i])
 			dbBtns[i].addEventListener("click", clickHandler)
 		}
+		window.addEventListener('click', () => {
+			showRightClickMenu.value = false;
+		})
 	})
 </script>
 
@@ -160,8 +354,6 @@
 	.aside {
 		width: 10rem;
 		background-color: #ffffff;
-		box-shadow: 0 0 0.5rem #888;
-		filter: drop-shadow(0 0 0.5rem #eee);
 	}
 
 	.aside-header {
@@ -183,16 +375,45 @@
 		border: none;
 	}
 
+	.tools {
+		height: 5rem;
+		background-color: #fffa;
+	}
+
 	.main {
 		padding: 0;
 	}
 
-	.el-tabs__nav {
-		background: #fff;
+	.el-tabs__nav-scroll {
+		transform: translateY(-1px);
+	}
+
+	.el-tabs--card>.el-tabs__header .el-tabs__nav.is-top {
+		border-color: transparent;
 	}
 
 	.el-tabs__item {
 		height: 2rem;
+	}
+
+	.el-tabs--card>.el-tabs__header .el-tabs__item.is-closable:first-child {
+		border-top-left-radius: 0.5rem;
+		border-left: 1px solid #e4e7e4;
+	}
+
+	.el-tabs--card>.el-tabs__header .el-tabs__item.is-closable:last-child {
+		border-top-right-radius: 0.5rem;
+		border-right: 1px solid #e4e7e4;
+	}
+
+	.el-tabs--card>.el-tabs__header .el-tabs__item.is-closable {
+		border-bottom: 1px solid #fff;
+		border-top: #e4e7ed 1px solid;
+		background-color: #fff;
+	}
+
+	.el-tabs--card>.el-tabs__header .el-tabs__item.is-closable:not(.is-active) {
+		border-bottom: 1px solid transparent;
 	}
 
 	.el-tabs--card>.el-tabs__header {
@@ -202,7 +423,38 @@
 
 	.el-tabs__content {
 		width: 100%;
-		height: 100%;
+		height: calc(100vh - 7rem);
 		background-color: #fff;
 	}
+
+	.rightClick_menu {
+		width: 8rem;
+		position: absolute;
+		display: block;
+		background-color: #fff;
+		filter: drop-shadow(0.1rem 0.1rem 0.125rem #aaa);
+		box-sizing: border-box;
+		border-radius: 0.2rem;
+		padding: 0.5rem 0;
+	}
+
+	.rightClick_menu>div {
+		width: 8rem;
+		height: 1.5rem;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		cursor: pointer;
+	}
+
+	.rightClick_menu>div {
+		padding: 0 1rem;
+		box-sizing: border-box;
+	}
+
+	.rightClick_menu>div:hover {
+		background-color: #d9ecff;
+	}
+
+	.rightClick_menu>div+div {}
 </style>
