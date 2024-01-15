@@ -27,6 +27,8 @@ async function createWindow() {
 	win = new BrowserWindow({
 		width: 800,
 		height: 600,
+		minWidth: 400, // 设置最小宽度
+		minHeight: 300, // 设置最小高度
 		// autoHideMenuBar: true,
 		webPreferences: {
 			nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION,
@@ -67,7 +69,7 @@ app.on('ready', async () => {
 	}
 	const template = [{
 		label: "DevelopTool",
-		click:()=>{
+		click: () => {
 			win.webContents.openDevTools()
 		}
 	}]

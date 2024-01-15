@@ -49,8 +49,14 @@
 		</el-aside>
 		<el-container>
 			<el-header>Header</el-header>
-			<el-main>
-				{{current_table}}
+			<el-main class="main">
+				<el-tabs v-model="selectedTab" type="card" closable>
+					<el-tab-pane v-for="(item,index) in tabs" :key="index" :label="item.title">
+						<div>
+
+						</div>
+					</el-tab-pane>
+				</el-tabs>
 			</el-main>
 		</el-container>
 	</el-container>
@@ -69,21 +75,19 @@
 		useRoute,
 		useRouter
 	} from 'vue-router'
+	// 验证路由
 	const route = useRoute()
 	const router = useRouter();
-	if (localStorage.getItem('test') == null) {
-		localStorage.setItem('test', JSON.stringify({
-			url: "localhost:9979",
-			account: "root",
-			password: "root"
-		}))
-	}
 	const connectName = route.params.connectName;
 	const recentConnect = JSON.parse(localStorage.getItem(connectName))
+	recentConnect.date = Date.now();
 	if (recentConnect == null) {
 		ElMessage.error('Unknown Connect.')
 		router.push('/')
+	} else {
+		localStorage.setItem(connectName, JSON.stringify(recentConnect))
 	}
+	// 数据库信息获取
 	const databases = reactive([])
 	var db_dic = {}
 	console.log(databases[0]);
@@ -110,8 +114,21 @@
 		}
 		console.log(JSON.parse(rspn))
 	}
+	// 选择具体的表
 	const current_table = ref()
-	const select = (index_db, index_tb)=> {
+	const selectedTab = ref()
+	const tabs = reactive([{
+		title: "tab-1",
+		type: "1",
+		data: {
+
+		}
+	}, {
+		title: "tab-2",
+		type: "2",
+		data: {}
+	}])
+	const select = (index_db, index_tb) => {
 		index_db = parseInt(index_db)
 		index_tb = parseInt(index_tb)
 		alert(databases[index_db].tables[index_tb].name)
@@ -143,6 +160,8 @@
 	.aside {
 		width: 10rem;
 		background-color: #ffffff;
+		box-shadow: 0 0 0.5rem #888;
+		filter: drop-shadow(0 0 0.5rem #eee);
 	}
 
 	.aside-header {
@@ -164,7 +183,26 @@
 		border: none;
 	}
 
-	.aside-header:hover {
-		background-color: #fefefe;
+	.main {
+		padding: 0;
+	}
+
+	.el-tabs__nav {
+		background: #fff;
+	}
+
+	.el-tabs__item {
+		height: 2rem;
+	}
+
+	.el-tabs--card>.el-tabs__header {
+		margin: 0;
+		height: 2rem;
+	}
+
+	.el-tabs__content {
+		width: 100%;
+		height: 100%;
+		background-color: #fff;
 	}
 </style>

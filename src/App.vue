@@ -37,4 +37,8 @@
 		height: 1em;
 		width: 1em;
 	}
+	.icon-inline{
+		display: flex;
+		align-items: center;
+	}
 </style>
