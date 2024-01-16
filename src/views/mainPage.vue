@@ -28,7 +28,7 @@
 							<span style="margin-left: 0.25rem;">{{database.name}}</span>
 						</template>
 						<el-menu-item v-for="(table,index_tb) in database.tables" :index="`${index_db}-${index_tb}`"
-							@click="select(index_db,index_tb)" @mousedown="clickTable($event,index_db,index_tb)"
+							@click="select(index_db,index_tb)" @mouseup="clickTable($event,index_db,index_tb)"
 							:key="index_tb" style="height: 2rem;">
 							<svg class="icon" xmlns="http://www.w3.org/2000/svg" xml:space="preserve"
 								style="enable-background:new 0 0 1024 1024;" viewBox="0 0 1024 1024" data-v-ea893728="">
@@ -42,24 +42,34 @@
 									d="M480 512h192c21.33 0 32-10.67 32-32s-10.67-32-32-32H480c-21.33 0-32 10.67-32 32s10.67 32 32 32m0 192h192c21.33 0 32-10.67 32-32s-10.67-32-32-32H480c-21.33 0-32 10.67-32 32s10.67 32 32 32">
 								</path>
 							</svg>
-							<span style="margin-left: 0.25rem;">{{table.name}}</span>
+							<span style="margin-left: 0.25rem;">{{table.tableName}}</span>
 						</el-menu-item>
 					</el-sub-menu>
 				</el-menu>
 			</el-scrollbar>
 		</el-aside>
 		<el-container style="border-left: 1px solid #e4e7e4;">
-			<el-header class="tools">Header</el-header>
+			<el-header class="tools">
+				<h5>Header</h5>
+			</el-header>
 			<el-main class="main">
-				<el-tabs v-model="selectedTab" type="card" closable>
-					<el-tab-pane v-for="(item,index) in tabs" :key="index" :label="item.title">
-						<div v-if="item.type==1">
-							<!-- <el-table :data="viewTableData">
-								<el-table-column v-for="(prop,index_p) of item.column" :key="index_p"
-									:label="prop"></el-table-column>
-							</el-table> -->
+				<el-tabs v-model.lazy="tabsValue" type="card" closable @tab-remove="removeTab">
+					<el-tab-pane v-for="(tab,index_tab) in tabs" :key="index_tab" :label="tab.title" :name="tab.title">
+						<div v-if="tab.type==1">
+							<el-table :data="viewTableData[tab.title]" border>
+								<el-table-column
+									v-for="(prop,index_p) of databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab.table_name]].columns"
+									:key="index_p" :label="prop.columnName">
+									<template #default="scope">
+										<el-text v-if="prop.isPrimaryKey" type="primary"
+											@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label)">{{scope.row[prop.columnName]}}</el-text>
+										<el-text v-else
+											@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label)">{{scope.row[prop.columnName]}}</el-text>
+									</template>
+								</el-table-column>
+							</el-table>
 						</div>
-						<div v-if="item.type==2">
+						<div v-if="tab.type==2">
 
 						</div>
 					</el-tab-pane>
@@ -67,7 +77,7 @@
 			</el-main>
 		</el-container>
 	</el-container>
-	<div class="rightClick_menu" :style="{top:`${tPosition}px`,left:`${lPosition}px`}" v-show="showRightClickMenu">
+	<div class="rightClick_menu" :style="{top:`${tPosition}px`,left:`${lPosition}px`}" v-show="showTableMenu">
 		<div @click="viewTable()">
 			<el-text>View Tabel</el-text>
 		</div>
@@ -81,6 +91,17 @@
 			<el-text>Drop Table</el-text>
 		</div>
 	</div>
+	<div class="rightClick_menu" :style="{top:`${tPosition}px`,left:`${lPosition}px`}" v-show="showValueMenu">
+		<div @click="editValue()">
+			<el-text>Edit Value</el-text>
+		</div>
+		<div>
+			<el-text>Restore Value</el-text>
+		</div>
+		<div>
+			<el-text>Refresh</el-text>
+		</div>
+	</div>
 </template>
 
 <script setup>
@@ -89,9 +110,12 @@
 		ElMessageBox
 	} from 'element-plus';
 	import {
+		debounce
+	} from 'lodash';
+	import {
 		ref,
 		onMounted,
-		// computed,
+		computed,
 		reactive
 	} from 'vue';
 	import {
@@ -130,6 +154,22 @@
 	// 数据库信息获取
 	const databases = reactive([])
 	var db_dic = {};
+	var tb_dic = {};
+	const setDic = () => {
+		db_dic = {}
+		tb_dic = {}
+		for (let i = 0; i < databases.length; i++) {
+			const database = databases[i]
+			db_dic[database.name] = i
+			if (database.is_activate) {
+				let temp_dic = {}
+				for (let j = 0; j < database.tables.length; j++) {
+					temp_dic[database.tables[j].tableName] = j
+				}
+				tb_dic[database.name] = temp_dic
+			}
+		}
+	}
 	const getDataBases = async () => {
 		let rspn = await sqlRequest("show databases;");
 		if (rspn == null) {
@@ -144,54 +184,22 @@
 				is_activate: false
 			})
 		}
+		setDic();
 	}
-	const loadDataBase = (index) => {
-		sqlRequest(`use database ${databases[index].name};`);
-		let rspn = await sqlRequest("show tables;");
-		if (rspn == null) {
-			return;
+	const loadDataBase = async (index) => {
+		try {
+			const response = await axios.get(`http://${recentConnect.url}/sql/${databases[index].name}`)
+			databases[index].tables = response.data
+		} catch (error) {
+			alert(error); // 捕获错误并进行处理
+			return false
 		}
-		rspn = rspn.split('\n')
-		const table_names = rspn.filter(item => item !== '')
-		databases[index].tables = [{
-			name: "table-1",
-			column: [{
-				name: "id",
-				type: "int",
-				primary_key: true
-			}, {
-				name: "name",
-				type: "string",
-				primary_key: false
-			}],
-			is_activate: false,
-			data: []
-		}, {
-			name: "table-2",
-			column: [{
-				name: "id",
-				type: "int",
-				primary_key: true
-			}, {
-				name: "name",
-				type: "string",
-				primary_key: false
-			}],
-			is_activate: false,
-			data: []
-		}, {
-			name: "table-3",
-			column: [{
-				name: "id",
-				type: "int",
-				primary_key: true
-			}, {
-				name: "name",
-				type: "string",
-				primary_key: false
-			}]
-		}]
+		for (let i = 0; i < databases[index].tables.length; i++) {
+			databases[index].tables[i].is_activate = false;
+			databases[index].tables[i].data = [];
+		}
 		databases[index].is_activate = true;
+		setDic();
 		return true
 	}
 	// 选择具体的表
@@ -201,57 +209,8 @@
 	 * 3: 编辑表 (弃用)
 	 */
 	const current_table = ref()
-	const selectedTab = ref()
-	const tabs = reactive([{
-		title: "Show table-1",
-		type: "1",
-		database_name: "user",
-		table_name: "table-1",
-		data: {
-			column: [{
-				name: "id",
-				type: "int",
-				primary_key: true
-			}, {
-				name: "name",
-				type: "string",
-				primary_key: false
-			}],
-			initialValue: [{
-				id: 1,
-				name: "王占全"
-			}, {
-				id: 2,
-				name: "王维佳"
-			}],
-			update: [{
-				index: 1,
-				alterations: {
-					name: "王唯佳"
-				}
-			}],
-			new: [{
-				id: 3,
-				name: "张小勤"
-			}]
-		}
-	}, {
-		title: "tab-2",
-		type: "2",
-		database_name: "user",
-		table_name: "table-1",
-		data: {
-			column: [{
-				name: "id",
-				type: "int",
-				primary_key: true
-			}, {
-				name: "name",
-				type: "string",
-				primary_key: false
-			}],
-		}
-	}])
+	const tabsValue = ref()
+	const tabs = ref([])
 	// const viewTableData = computed(() => {
 	// 	let data = tabs[selectedTab].data;
 	// 	let tableData = data.initialValue;
@@ -263,46 +222,110 @@
 	// 	tableData.push([...tableData.new]);
 	// 	return tableData;
 	// })
-	// const x = ref()
-	// const createViewTableData = (table) => {
-	// 	return computed(() => {
-	// 		x.value * num
-	// 	})
-	// }
+	const removeTab = (targetName) => {
+		console.log(targetName)
+		const tabs_copy = tabs.value;
+		let activeName = tabsValue.value;
+		if (activeName === targetName) {
+			tabs_copy.forEach((tab, index) => {
+				if (tab.title === targetName) {
+					const nextTab = tabs_copy[index + 1] || tabs_copy[index - 1];
+					if (nextTab) {
+						activeName = nextTab.title;
+					}
+				}
+			})
+		}
+		tabsValue.value = activeName
+		tabs.value = tabs_copy.filter((tab) => tab.title !== targetName)
+	}
 	const select = (index_db, index_tb) => {
 		index_db = parseInt(index_db)
 		index_tb = parseInt(index_tb)
 		current_table.value = databases[index_db].tables[index_tb].name
 	}
 	// 右键表
-	const showRightClickMenu = ref(false);
+	const showTableMenu = ref(false);
 	const tPosition = ref(0)
 	const lPosition = ref(0)
+	var rightClickDatabase = ""
 	var rightClickTable = ""
 	const clickTable = (event, index_db, index_tb) => {
 		if (event.button != 2) return;
+		event.stopPropagation();
 		index_db = parseInt(index_db)
 		index_tb = parseInt(index_tb)
-		rightClickTable = databases[index_db].tables[index_tb].name
-		showRightClickMenu.value = true
+		rightClickDatabase = databases[index_db].name
+		rightClickTable = databases[index_db].tables[index_tb].tableName
+		showValueMenu.value = false;
+		showTableMenu.value = true
 		tPosition.value = event.clientY;
 		lPosition.value = event.clientX;
 	}
+
 	const newTable = () => {
-		tabs.push({
+		tabs.value.push({
 			title: "New Table"
 		})
 	}
 	const altTable = () => {
-		tabs.push({
+		tabs.value.push({
 			title: `Edit ${rightClickTable}`
 		})
 	}
-	const viewTable = () => {
-		tabs.push({
-			title: `View ${rightClickTable}`
+	const viewTable = async () => {
+		let db_index = db_dic[rightClickDatabase];
+		let tb_index = tb_dic[rightClickDatabase][rightClickTable];
+		if (!databases[db_index].tables[tb_index].is_activate) {
+			try {
+				const response = await axios.get(
+					`http://${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`)
+				databases[db_index].tables[tb_index].data = response.data
+				databases[db_index].tables[tb_index].is_activate = true
+			} catch (error) {
+				alert(error); // 捕获错误并进行处理
+				return false
+			}
+		}
+		const tabs_ = tabs.value;
+		let title = `View ${rightClickTable}`
+		for (let i = 0; i < tabs_.length; i++) {
+			if (tabs_[i].title == title) {
+				tabsValue.value = title;
+				return
+			}
+		}
+		tabs.value.push({
+			title: `View ${rightClickTable}`,
+			type: '1',
+			database_name: rightClickDatabase,
+			table_name: rightClickTable,
+			data: {
+				update: [],
+				new: []
+			}
 		})
+		tabsValue.value = title;
 	}
+	const viewTableData = computed(() => {
+		let tableData = {}
+		for (const tab of tabs.value) {
+			if (tab.type != "1")
+				continue;
+			let originalData = databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab.table_name]].data;
+			let data = JSON.parse(JSON.stringify(originalData))
+			for (const changedData of tab.data.update) {
+				for (const key of Object.keys(changedData.data)) {
+					data[changedData.index][key] = changedData.data[key];
+				}
+				for (const newData of tab.data.new) {
+					data.push(newData)
+				}
+			}
+			tableData[tab.title] = data
+		}
+		return tableData
+	})
 	const dropTable = () => {
 		ElMessageBox.confirm(
 				"This operation will permanently delete the table, continue?", 'Confirm', {
@@ -325,6 +348,62 @@
 				})
 			})
 	}
+	// 右键值
+	const showValueMenu = ref(false)
+	var rightClickTab = ""
+	var rigthClickRow = ""
+	var rightClickLabel = ""
+	const clickValue = (event, index_tab, index_row, label) => {
+		if (event.button != 2 && event.button != 0) return;
+		event.stopPropagation();
+		rightClickTab = parseInt(index_tab)
+		rigthClickRow = parseInt(index_row)
+		rightClickLabel = label
+		showTableMenu.value = false;
+		showValueMenu.value = true;
+		tPosition.value = event.clientY;
+		lPosition.value = event.clientX;
+	}
+	const editValue = () => {
+		ElMessageBox.prompt(
+				`Please input new value for ${rightClickLabel}`, "Edit Value", {
+					confirmButtonText: 'OK',
+					cancelButtonText: 'Cancel',
+					// inputPattern: /[\w!#$%&'*+/=?^_`{|}~-]+(?:\.[\w!#$%&'*+/=?^_`{|}~-]+)*@(?:[\w](?:[\w-]*[\w])?\.)+[\w](?:[\w-]*[\w])?/,
+					// inputErrorMessage: 'Invalid Email',
+				}).then(({
+				value
+			}) => {
+				let update_copy = tabs.value[rightClickTab].data.update
+				for (let i = 0; i < update_copy.length; i++) {
+					if (update_copy[i].index == rigthClickRow) {
+						tabs.value[rightClickTab].data.update[i].data[rightClickLabel] = value;
+						ElMessage({
+							type: 'success',
+							message: `Value has been changed`,
+						})
+						return true;
+					}
+				}
+				let temp = {
+					index: rigthClickRow,
+					data: {}
+				}
+				temp.data[rightClickLabel] = value;
+				tabs.value[rightClickTab].data.update.push(temp);
+				ElMessage({
+					type: 'success',
+					message: `Value has been changed`,
+				})
+				console.log(tabs.value[rightClickTab])
+			})
+			.catch(() => {
+				ElMessage({
+					type: 'info',
+					message: 'Canceled',
+				})
+			})
+	}
 	onMounted(async () => {
 		await getDataBases();
 
@@ -344,9 +423,19 @@
 			const clickHandler = createClickHandler(i, dbBtns[i])
 			dbBtns[i].addEventListener("click", clickHandler)
 		}
-		window.addEventListener('click', () => {
-			showRightClickMenu.value = false;
+		window.addEventListener('mouseup', () => {
+			showTableMenu.value = false;
+			showValueMenu.value = false;
+			console.log(databases)
 		})
+		const _ResizeObserver = window.ResizeObserver;
+		window.ResizeObserver = class ResizeObserver extends _ResizeObserver {
+			constructor(callback) {
+				callback = debounce(callback, 16);
+				super(callback)
+			}
+		}
+
 	})
 </script>
 
@@ -413,7 +502,7 @@
 	}
 
 	.el-tabs--card>.el-tabs__header .el-tabs__item.is-closable:not(.is-active) {
-		border-bottom: 1px solid transparent;
+		border-bottom: 1px solid #e4e7e4;
 	}
 
 	.el-tabs--card>.el-tabs__header {
@@ -436,6 +525,7 @@
 		box-sizing: border-box;
 		border-radius: 0.2rem;
 		padding: 0.5rem 0;
+		z-index: 99;
 	}
 
 	.rightClick_menu>div {
@@ -457,4 +547,8 @@
 	}
 
 	.rightClick_menu>div+div {}
+
+	.el-table {
+		margin-top: 0.5rem;
+	}
 </style>

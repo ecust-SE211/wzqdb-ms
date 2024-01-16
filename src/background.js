@@ -73,8 +73,8 @@ app.on('ready', async () => {
 			win.webContents.openDevTools()
 		}
 	}]
-	const menu = Menu.buildFromTemplate(template);
-	Menu.setApplicationMenu(menu);
+	// const menu = Menu.buildFromTemplate(template);
+	// Menu.setApplicationMenu(menu);
 	createWindow()
 })
 
