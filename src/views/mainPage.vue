@@ -8,10 +8,14 @@
 							Close connect.
 						</el-button>
 					</router-link>
+					<el-button class="aside-header" type="primary" text @click="getDataBases()">
+						Refresh databases.
+					</el-button>
 				</div>
-				<el-menu>
+				<el-menu default-active="">
 					<el-sub-menu v-for="(database,index_db) in databases" :index="`${index_db}`" :key="index_db"
-						:db_name="database.name" :class="{'activate':database.is_activate}">
+						:db_name="database.name" :class="{'activate':database.is_activate}"
+						@click="clickHandler(index_db)()">
 						<template #title>
 							<svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"
 								data-v-ea893728="">
@@ -49,29 +53,61 @@
 			</el-scrollbar>
 		</el-aside>
 		<el-container style="border-left: 1px solid #e4e7e4;">
-			<el-header class="tools">
-				<h5>Header</h5>
+			<el-header class="tool_bar">
+				<el-button :icon="CircleCheck" type="primary" plain @click="submit" :disabled="!tabsValue">
+					Submit</el-button>
+				<el-button :icon="Refresh" type="primary" plain @click="refresh" :disabled="!tabsValue">
+					Refresh</el-button>
+				<el-button :icon="EditPen" type="primary" plain @click="createSql">
+					Sql Query</el-button>
 			</el-header>
 			<el-main class="main">
 				<el-tabs v-model.lazy="tabsValue" type="card" closable @tab-remove="removeTab">
 					<el-tab-pane v-for="(tab,index_tab) in tabs" :key="index_tab" :label="tab.title" :name="tab.title">
-						<div v-if="tab.type==1">
-							<el-table :data="viewTableData[tab.title]" border>
-								<el-table-column
-									v-for="(prop,index_p) of databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab.table_name]].columns"
-									:key="index_p" :label="prop.columnName">
-									<template #default="scope">
-										<el-text v-if="prop.isPrimaryKey" type="primary"
-											@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label)">{{scope.row[prop.columnName]}}</el-text>
-										<el-text v-else
-											@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label)">{{scope.row[prop.columnName]}}</el-text>
-									</template>
-								</el-table-column>
-							</el-table>
-						</div>
-						<div v-if="tab.type==2">
+						<el-scrollbar style="height: calc(100vh - 5rem); padding:1rem;">
+							<div v-if="tab.type==1">
+								<el-table :data="viewTableData[tab.title]" border>
+									<el-table-column
+										v-for="(prop,index_p) of databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab.table_name]].columns"
+										:key="index_p" :label="prop.columnName" :type="prop.columnType">
+										<template #header>
+											<el-text>{{prop.columnName}}</el-text>
+											<el-text style="margin-left: 0.25rem;"
+												type="success">({{prop.columnType}})</el-text>
+										</template>
+										<template #default="scope">
+											<el-text v-if="prop.isPrimaryKey" type="primary"
+												@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label,scope.column.type)">{{scope.row[prop.columnName]}}</el-text>
+											<el-text v-else
+												@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label,scope.column.type)">{{scope.row[prop.columnName]}}</el-text>
+										</template>
+									</el-table-column>
+								</el-table>
+							</div>
+							<div v-if="tab.type==2">
 
-						</div>
+							</div>
+							<div class="sql-tab" v-if="tab.type==3">
+								<el-input v-model="sqlInput" type="textarea" :autosize="{ minRows: 2, maxRows: 6}"
+									:parser="(value) => value.replace(/\n[\s]*\n/g, '\n')">
+								</el-input>
+								<div v-if="!sqlRunning">
+									<el-button :disabled="!sqls" @click="runFullSql()" :icon="SwitchButton"
+										type="primary" plain>Run Sqls.</el-button>
+								</div>
+								<div v-else>
+									<el-button :disabled="!sqls" @click="sqlRunning = false" :icon="SwitchButton"
+										type="danger" plain>Stop!</el-button>
+								</div>
+								<div class="sql-block" v-for="(sql,index) in sqls" :key="index">
+									<el-button @click="runSql(index,sql)" :type="sqlType[index]">{{sql}}</el-button>
+									<div>
+										<el-text plain type="info">{{sqlResult[index]}}</el-text>
+									</div>
+
+								</div>
+							</div>
+						</el-scrollbar>
 					</el-tab-pane>
 				</el-tabs>
 			</el-main>
@@ -95,10 +131,10 @@
 		<div @click="editValue()">
 			<el-text>Edit Value</el-text>
 		</div>
-		<div>
+		<div @click="restoreValue()">
 			<el-text>Restore Value</el-text>
 		</div>
-		<div>
+		<div @click="refresh()">
 			<el-text>Refresh</el-text>
 		</div>
 	</div>
@@ -110,7 +146,8 @@
 		ElMessageBox
 	} from 'element-plus';
 	import {
-		debounce
+		debounce,
+		isNull
 	} from 'lodash';
 	import {
 		ref,
@@ -122,6 +159,12 @@
 		useRoute,
 		useRouter
 	} from 'vue-router'
+	import {
+		CircleCheck,
+		Refresh,
+		EditPen,
+		SwitchButton
+	} from '@element-plus/icons-vue'
 	import axios from '../axios.js'
 	// 验证路由
 	const route = useRoute()
@@ -129,20 +172,14 @@
 	const connectName = route.params.connectName;
 	const recentConnect = JSON.parse(localStorage.getItem(connectName))
 	const sqlRequest = async (sql) => {
-		try {
-			console.log(sql)
-			const response = await axios.post(`http://${recentConnect.url}/sql/execute`, {
-				sql: sql
-			}, {
-				headers: {
-					'Content-Type': 'application/json'
-				}
-			});
-			return response.data; // 返回异步请求的数据
-		} catch (error) {
-			alert(error); // 捕获错误并进行处理
-			return null; // 或者返回一个默认值
-		}
+		const response = await axios.post(`http://${recentConnect.url}/sql/execute`, JSON.stringify({
+			sql: sql
+		}), {
+			headers: {
+				'Content-Type': 'application/json'
+			}
+		});
+		return response.data; // 返回异步请求的数据
 	};
 	recentConnect.date = Date.now();
 	if (recentConnect == null) {
@@ -173,18 +210,29 @@
 	const getDataBases = async () => {
 		let rspn = await sqlRequest("show databases;");
 		if (rspn == null) {
+			ElMessage({
+				type: "error",
+				message: "Load databases fail."
+			})
 			return;
 		}
 		rspn = rspn.split('\n')
 		const database_names = rspn.filter(item => item !== '');
+		console.log(databases)
 		databases.splice(0, databases.length)
+		console.log(databases)
 		for (const database_name of database_names) {
 			databases.push({
 				name: database_name,
 				is_activate: false
 			})
 		}
+		console.log(databases)
 		setDic();
+		ElMessage({
+			type: "success",
+			message: "Load databases completed."
+		})
 	}
 	const loadDataBase = async (index) => {
 		try {
@@ -232,6 +280,8 @@
 					const nextTab = tabs_copy[index + 1] || tabs_copy[index - 1];
 					if (nextTab) {
 						activeName = nextTab.title;
+					} else {
+						activeName = null
 					}
 				}
 			})
@@ -273,18 +323,25 @@
 			title: `Edit ${rightClickTable}`
 		})
 	}
+	const reloadTable = async (db_index, tb_index) => {
+		try {
+			const response = await axios.get(
+				`http://${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`)
+			databases[db_index].tables[tb_index].data = response.data
+			databases[db_index].tables[tb_index].is_activate = true
+			return true
+		} catch (error) {
+			alert(error); // 捕获错误并进行处理
+			return false
+		}
+	}
 	const viewTable = async () => {
 		let db_index = db_dic[rightClickDatabase];
 		let tb_index = tb_dic[rightClickDatabase][rightClickTable];
 		if (!databases[db_index].tables[tb_index].is_activate) {
-			try {
-				const response = await axios.get(
-					`http://${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`)
-				databases[db_index].tables[tb_index].data = response.data
-				databases[db_index].tables[tb_index].is_activate = true
-			} catch (error) {
-				alert(error); // 捕获错误并进行处理
-				return false
+			if (!await reloadTable(db_index, tb_index)) {
+				new Error("Get TableData fail.")
+				return;
 			}
 		}
 		const tabs_ = tabs.value;
@@ -312,11 +369,13 @@
 		for (const tab of tabs.value) {
 			if (tab.type != "1")
 				continue;
-			let originalData = databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab.table_name]].data;
+			let originalData = databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab
+				.table_name
+			]].data;
 			let data = JSON.parse(JSON.stringify(originalData))
 			for (const changedData of tab.data.update) {
 				for (const key of Object.keys(changedData.data)) {
-					data[changedData.index][key] = changedData.data[key];
+					data[changedData.index][key] = `*${changedData.data[key]}`;
 				}
 				for (const newData of tab.data.new) {
 					data.push(newData)
@@ -336,16 +395,22 @@
 				}
 			)
 			.then(() => {
+				try {
+					sqlRequest(`use database ${rightClickDatabase};`)
+					sqlRequest(`drop table ${rightClickTable};`)
+				} catch (e) {
+					ElMessage({
+						type: 'error',
+						message: 'Bad Network',
+					})
+					return
+				}
 				ElMessage({
 					type: 'success',
 					message: 'Delete completed',
 				})
-			})
-			.catch(() => {
-				ElMessage({
-					type: 'info',
-					message: 'Delete canceled',
-				})
+				databases[db_dic[rightClickDatabase]].tables.splice(tb_dic[rightClickDatabase][rightClickTable], 1)
+				setDic()
 			})
 	}
 	// 右键值
@@ -353,24 +418,35 @@
 	var rightClickTab = ""
 	var rigthClickRow = ""
 	var rightClickLabel = ""
-	const clickValue = (event, index_tab, index_row, label) => {
+	var rightClickType = ""
+	const clickValue = (event, index_tab, index_row, label, type) => {
 		if (event.button != 2 && event.button != 0) return;
 		event.stopPropagation();
 		rightClickTab = parseInt(index_tab)
 		rigthClickRow = parseInt(index_row)
 		rightClickLabel = label
+		rightClickType = type
 		showTableMenu.value = false;
 		showValueMenu.value = true;
 		tPosition.value = event.clientY;
 		lPosition.value = event.clientX;
 	}
 	const editValue = () => {
+		let inputPattern = /^[\S\s]*$/;
+		if (rightClickType == "int") {
+			inputPattern = /^([1-9][0-9]*|0)$/
+		} else {
+			let ans = rightClickType.match(/^varchar\(([1-9][0-9]*|0)\)$/)
+			if (!isNull(ans)) {
+				inputPattern = new RegExp(`^[\\S\\s]{0,${ans[1]}}$`);
+			}
+		}
 		ElMessageBox.prompt(
 				`Please input new value for ${rightClickLabel}`, "Edit Value", {
 					confirmButtonText: 'OK',
 					cancelButtonText: 'Cancel',
-					// inputPattern: /[\w!#$%&'*+/=?^_`{|}~-]+(?:\.[\w!#$%&'*+/=?^_`{|}~-]+)*@(?:[\w](?:[\w-]*[\w])?\.)+[\w](?:[\w-]*[\w])?/,
-					// inputErrorMessage: 'Invalid Email',
+					inputPattern: inputPattern,
+					inputErrorMessage: 'Invalid Value',
 				}).then(({
 				value
 			}) => {
@@ -378,10 +454,6 @@
 				for (let i = 0; i < update_copy.length; i++) {
 					if (update_copy[i].index == rigthClickRow) {
 						tabs.value[rightClickTab].data.update[i].data[rightClickLabel] = value;
-						ElMessage({
-							type: 'success',
-							message: `Value has been changed`,
-						})
 						return true;
 					}
 				}
@@ -391,42 +463,141 @@
 				}
 				temp.data[rightClickLabel] = value;
 				tabs.value[rightClickTab].data.update.push(temp);
-				ElMessage({
-					type: 'success',
-					message: `Value has been changed`,
-				})
-				console.log(tabs.value[rightClickTab])
 			})
-			.catch(() => {
-				ElMessage({
-					type: 'info',
-					message: 'Canceled',
-				})
+			.catch(error => console.log(error))
+	}
+	const restoreValue = () => {
+		let updata_copy = tabs.value[rightClickTab].data.update
+		for (let i = 0; i < updata_copy.length; i++) {
+			if (updata_copy[i].index == rigthClickRow) {
+				delete tabs.value[rightClickTab].data.update[i].data[rightClickLabel]
+			}
+		}
+	}
+	const refresh = () => {
+		let tab_index = -1;
+		for (let i = 0; i < tabs.value.length; i++) {
+			if (tabs.value[i].title == tabsValue.value) {
+				tab_index = i;
+				break;
+			}
+		}
+		try {
+			let tab = tabs.value[tab_index]
+			reloadTable(db_dic[tab.database_name], tb_dic[tab.database_name][tab.table_name]);
+		} catch (e) {
+			ElMessage({
+				type: "error",
+				message: "Get table data fail."
 			})
+		}
+		tabs.value[tab_index].data = {
+			update: [],
+			new: []
+		}
+
+		// 重新加载数据库内容
+	}
+	const submit = () => {
+		let tab_index = -1;
+		for (let i = 0; i < tabs.value.length; i++) {
+			if (tabs.value[i].title == tabsValue.value) {
+				tab_index = i;
+				break;
+			}
+		}
+		console.log(tab_index)
+		console.log(tabsValue.value)
+		if (tab_index == -1) {
+			throw new Error("Cannot find current tab.")
+		}
+		sqlRequest(`use database ${tabs.value[tab_index].database_name}`)
+		const data_copy = tabs.value[tab_index].data;
+		const dbName = tabs.value[tab_index].database_name;
+		const tbName = tabs.value[tab_index].table_name
+		for (let i = 0; i < data_copy.update.length; i++) {
+			const update_data = data_copy.update[i];
+			let requestData = JSON.stringify({
+				dbName: dbName,
+				tbName: tbName,
+				updataIndex: update_data.index,
+				updateKeyValue: update_data.data
+			})
+			axios.post(`http://${recentConnect.url}/sql/update`, requestData, {
+				headers: {
+					'Content-Type': 'application/json'
+				}
+			}).then(rspn => {
+				console.log(rspn.data)
+			})
+		}
+		refresh();
+	}
+	// 自定义Sql:
+	const sqlInput = ref(`show databases;
+use database rjjsss;
+show tables;
+select * from rjj;`)
+	const sqlResult = reactive({})
+	const sqlType = reactive({})
+	const sqlRunning = ref(false)
+	const sqls = computed(() => {
+		return sqlInput.value.match(/[^;]+;/g)
+	})
+	const createSql = () => {
+		for (let i = 0; i < tabs.value.length; i++) {
+			if (tabs.value[i].title == "Sql Query") {
+				tabsValue.value = "Sql Query";
+				return
+			}
+		}
+		tabs.value.push({
+			title: "Sql Query",
+			type: "3",
+		})
+		tabsValue.value = "Sql Query";
+	}
+	const runFullSql = async () => {
+		sqlRunning.value = true;
+		Object.keys(sqlType).forEach(key => {
+			delete sqlType[key]
+		})
+		for (let i = 0; i < sqls.value.length; i++) {
+			if (sqlRunning.value) {
+				await runSql(i, sqls.value[i])
+			} else {
+				sqlType[i] = "warning"
+				break
+			}
+		}
+		console.log(sqlType)
+		sqlRunning.value = false;
+	}
+	const runSql = async (index, sql) => {
+		sqlType[index] = "primary";
+		delete sqlResult[index];
+		try {
+			const rspn = await sqlRequest(sql)
+			sqlResult[index] = rspn
+			sqlType[index] = "success"
+		} catch (e) {
+			sqlResult[index] = e.message
+			sqlType[index] = "danger"
+		}
+	}
+	const clickHandler = (index) => {
+		return function() {
+			if (!databases[index].is_activate) {
+				loadDataBase(index)
+			}
+		}
 	}
 	onMounted(async () => {
 		await getDataBases();
 
-		const dbBtns = document.querySelectorAll(".el-sub-menu");
-		for (const dbBtn of dbBtns) {
-			db_dic[dbBtn.getAttribute('db_name')] = dbBtn;
-		}
-
-		function createClickHandler(index, element) {
-			function clickHandler() {
-				if (loadDataBase(index))
-					element.removeEventListener('click', clickHandler);
-			}
-			return clickHandler;
-		}
-		for (let i = 0; i < dbBtns.length; i++) {
-			const clickHandler = createClickHandler(i, dbBtns[i])
-			dbBtns[i].addEventListener("click", clickHandler)
-		}
 		window.addEventListener('mouseup', () => {
 			showTableMenu.value = false;
 			showValueMenu.value = false;
-			console.log(databases)
 		})
 		const _ResizeObserver = window.ResizeObserver;
 		window.ResizeObserver = class ResizeObserver extends _ResizeObserver {
@@ -464,10 +635,14 @@
 		border: none;
 	}
 
-	.tools {
-		height: 5rem;
-		background-color: #fffa;
+	.tool_bar {
+		height: 3rem;
+		background-color: #fff;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
 	}
+
 
 	.main {
 		padding: 0;
@@ -512,7 +687,7 @@
 
 	.el-tabs__content {
 		width: 100%;
-		height: calc(100vh - 7rem);
+		height: calc(100vh - 5rem);
 		background-color: #fff;
 	}
 
@@ -550,5 +725,20 @@
 
 	.el-table {
 		margin-top: 0.5rem;
+	}
+
+	.sql-tab>div {
+		margin-top: 0.25rem;
+	}
+
+	.sql-block {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: nowrap;
+		align-items: flex-start;
+	}
+
+	.sql-block>div {
+		margin-left: 0.25rem;
 	}
 </style>
