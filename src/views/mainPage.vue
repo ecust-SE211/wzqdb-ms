@@ -54,9 +54,9 @@
 		</el-aside>
 		<el-container style="border-left: 1px solid #e4e7e4;">
 			<el-header class="tool_bar">
-				<el-button :icon="CircleCheck" type="primary" plain @click="submit" :disabled="!tabsValue">
+				<el-button :icon="CircleCheck" type="primary" plain @click="submit" :disabled="disableButton">
 					Submit</el-button>
-				<el-button :icon="Refresh" type="primary" plain @click="refresh" :disabled="!tabsValue">
+				<el-button :icon="Refresh" type="primary" plain @click="refresh" :disabled="disableButton">
 					Refresh</el-button>
 				<el-button :icon="EditPen" type="primary" plain @click="createSql">
 					Sql Query</el-button>
@@ -72,8 +72,12 @@
 										:key="index_p" :label="prop.columnName" :type="prop.columnType">
 										<template #header>
 											<el-text>{{prop.columnName}}</el-text>
-											<el-text style="margin-left: 0.25rem;"
+											<el-text style="margin:0 0.25rem;"
 												type="success">({{prop.columnType}})</el-text>
+											<el-switch v-if="prop.columnType=='int'" v-model="prop.isPrimaryKey"
+												:loading="loading"
+												:before-change="togglePrimaryKeyHandle(tab.database_name,tab.table_name,prop.columnName)"
+												inline-prompt active-text="Primary Key" inactive-text="Primary Key" />
 										</template>
 										<template #default="scope">
 											<el-text v-if="prop.isPrimaryKey" type="primary"
@@ -82,18 +86,79 @@
 												@mouseup="clickValue($event,index_tab,scope.$index,scope.column.label,scope.column.type)">{{scope.row[prop.columnName]}}</el-text>
 										</template>
 									</el-table-column>
+									<el-table-column fixed="right">
+										<template #header>
+											<el-button type="primary" plain
+												@click="appendRow(tab.database_name,tab.table_name)">Append
+												Row</el-button>
+										</template>
+										<template #default="scope">
+											<el-button type="primary" link
+												@click="removeRow(tab.database_name,tab.table_name,scope.$index)">
+												Remove Row</el-button>
+										</template>
+									</el-table-column>
 								</el-table>
 							</div>
-							<div v-if="tab.type==2">
-
+							<div class="new-tab" v-if="tab.type==2">
+								<div>
+									<el-button style="margin-top: 0.5rem;" type="primary" plain
+										@click="newTablecolumn.push({columnName:'',columnType:''})">
+										Add Column</el-button>
+									<el-button style="margin-top: 0.5rem;" type="primary" plain :disabled="unsubmitable"
+										@click="addTable()">Submit</el-button>
+								</div>
+								<div>
+									<el-text
+										style="white-space: nowrap;margin-right: 1rem;">TableName:</el-text><el-input
+										v-model="newTableName"></el-input>
+									<el-text style="white-space: nowrap;margin:0 1rem;">Database:
+										{{newTableDatabase}}</el-text>
+								</div>
+								<el-table :data="newTablecolumn" border>
+									<el-table-column prop="columnName">
+										<template #header>
+											<el-tooltip content="Must start with a letter." placement="bottom">
+												columnName
+											</el-tooltip>
+										</template>
+										<template #default="scope">
+											<el-input v-model="newTablecolumn[scope.$index].columnName"></el-input>
+										</template>
+									</el-table-column>
+									<el-table-column prop="columnType">
+										<template #header>
+											<el-tooltip content="Must be a legal value." placement="bottom">
+												columnType
+											</el-tooltip>
+										</template>
+										<template #default="scope">
+											<el-select v-model="newTablecolumn[scope.$index].columnType" filterable
+												allow-create default-first-option :reserve-keyword="false">
+												<el-option label="varchar(20)" value="varchar(20)" />
+												<el-option label="char(20)" value="char(20)" />
+												<el-option label="int" value="int" />
+												<el-option label="double" value="double"></el-option>
+											</el-select>
+										</template>
+									</el-table-column>
+									<el-table-column fixed="right" label="Operations" width="120">
+										<template #default="scope">
+											<el-button @click="removeColumn(scope.$index)" link
+												type="primary">Remove</el-button>
+										</template>
+									</el-table-column>
+								</el-table>
 							</div>
 							<div class="sql-tab" v-if="tab.type==3">
-								<el-input v-model="sqlInput" type="textarea" :autosize="{ minRows: 2, maxRows: 6}"
+								<el-input v-model="sqlInput" type="textarea" autosize
 									:parser="(value) => value.replace(/\n[\s]*\n/g, '\n')">
 								</el-input>
 								<div v-if="!sqlRunning">
 									<el-button :disabled="!sqls" @click="runFullSql()" :icon="SwitchButton"
 										type="primary" plain>Run Sqls.</el-button>
+									<el-button @click="clearSql()" :icon="Delete" type="danger" plain>Clear
+										Records.</el-button>
 								</div>
 								<div v-else>
 									<el-button :disabled="!sqls" @click="sqlRunning = false" :icon="SwitchButton"
@@ -101,10 +166,17 @@
 								</div>
 								<div class="sql-block" v-for="(sql,index) in sqls" :key="index">
 									<el-button @click="runSql(index,sql)" :type="sqlType[index]">{{sql}}</el-button>
-									<div>
+									<div v-if="sqlResult[index]==undefined"></div>
+									<div v-else-if="sqlResult[index].ifMessage==undefined">
 										<el-text plain type="info">{{sqlResult[index]}}</el-text>
 									</div>
-
+									<div v-else-if="sqlResult[index].ifMessage">
+										<el-text plain type="info">{{sqlResult[index].message}}</el-text>
+									</div>
+									<el-table v-else border :data="sqlResult[index].data">
+										<el-table-column v-for="(column,index) of sqlResult[index].columns" :key="index"
+											:prop="column" :label="column"></el-table-column>
+									</el-table>
 								</div>
 							</div>
 						</el-scrollbar>
@@ -116,9 +188,6 @@
 	<div class="rightClick_menu" :style="{top:`${tPosition}px`,left:`${lPosition}px`}" v-show="showTableMenu">
 		<div @click="viewTable()">
 			<el-text>View Tabel</el-text>
-		</div>
-		<div @click="altTable()">
-			<el-text>Edit Table</el-text>
 		</div>
 		<div @click="newTable()">
 			<el-text>New Table</el-text>
@@ -138,6 +207,21 @@
 			<el-text>Refresh</el-text>
 		</div>
 	</div>
+	<el-dialog v-model="showAppendForm" title="Append Row">
+		<el-form label-width="auto">
+			<el-form-item
+				v-for="(column,index) of databases[db_dic[form_dbName]].tables[tb_dic[form_dbName][form_tbName]].columns"
+				:key="index" :label="`${column.columnName} (${column.columnType})`">
+				<el-input v-model="form_data[column.columnName]"></el-input>
+			</el-form-item>
+		</el-form>
+		<template #footer>
+			<el-button @click="showAppendForm = false">Cancel</el-button>
+			<el-button type="primary" @click="submitForm()" :disabled="!submitable">
+				Submit
+			</el-button>
+		</template>
+	</el-dialog>
 </template>
 
 <script setup>
@@ -163,7 +247,8 @@
 		CircleCheck,
 		Refresh,
 		EditPen,
-		SwitchButton
+		SwitchButton,
+		Delete
 	} from '@element-plus/icons-vue'
 	import axios from '../axios.js'
 	// 验证路由
@@ -171,6 +256,9 @@
 	const router = useRouter();
 	const connectName = route.params.connectName;
 	const recentConnect = JSON.parse(localStorage.getItem(connectName))
+	if (isNull(recentConnect)) {
+		router.push('/')
+	}
 	const sqlRequest = async (sql) => {
 		const response = await axios.post(`http://${recentConnect.url}/sql/execute`, JSON.stringify({
 			sql: sql
@@ -179,6 +267,7 @@
 				'Content-Type': 'application/json'
 			}
 		});
+		// console.log(response.data)
 		return response.data; // 返回异步请求的数据
 	};
 	recentConnect.date = Date.now();
@@ -193,45 +282,48 @@
 	var db_dic = {};
 	var tb_dic = {};
 	const setDic = () => {
-		db_dic = {}
-		tb_dic = {}
+		let db_dic_ = {}
+		let tb_dic_ = {}
 		for (let i = 0; i < databases.length; i++) {
 			const database = databases[i]
-			db_dic[database.name] = i
+			db_dic_[database.name] = i
 			if (database.is_activate) {
 				let temp_dic = {}
 				for (let j = 0; j < database.tables.length; j++) {
 					temp_dic[database.tables[j].tableName] = j
 				}
-				tb_dic[database.name] = temp_dic
+				tb_dic_[database.name] = temp_dic
 			}
 		}
+		db_dic = db_dic_
+		tb_dic = tb_dic_
 	}
 	const getDataBases = async () => {
+		tabs.value = []
 		let rspn = await sqlRequest("show databases;");
+		rspn = rspn.message
 		if (rspn == null) {
 			ElMessage({
 				type: "error",
-				message: "Load databases fail."
+				message: "Load databases fail.",
+				duration: 3000
 			})
 			return;
 		}
 		rspn = rspn.split('\n')
 		const database_names = rspn.filter(item => item !== '');
-		console.log(databases)
 		databases.splice(0, databases.length)
-		console.log(databases)
 		for (const database_name of database_names) {
 			databases.push({
 				name: database_name,
 				is_activate: false
 			})
 		}
-		console.log(databases)
 		setDic();
 		ElMessage({
 			type: "success",
-			message: "Load databases completed."
+			message: "Load databases completed.",
+			duration: 1000
 		})
 	}
 	const loadDataBase = async (index) => {
@@ -254,24 +346,17 @@
 	/**type:
 	 * 1: 查看表
 	 * 2: 新建表
-	 * 3: 编辑表 (弃用)
+	 * 3: sql语句查询
+	 * 编辑表 (弃用)
 	 */
 	const current_table = ref()
-	const tabsValue = ref()
+	const tabsValue = ref("")
 	const tabs = ref([])
-	// const viewTableData = computed(() => {
-	// 	let data = tabs[selectedTab].data;
-	// 	let tableData = data.initialValue;
-	// 	for (const changeInfo of tableData.update) {
-	// 		for (const attr of Object.keys(changeInfo.alterations)) {
-	// 			tableData[changeInfo.index] = changeInfo.alterations[attr];
-	// 		}
-	// 	}
-	// 	tableData.push([...tableData.new]);
-	// 	return tableData;
-	// })
+	// 禁用两个按钮：
+	const disableButton = computed(() => {
+		return isNull(tabsValue.value) || isNull(tabsValue.value.match(`View`))
+	})
 	const removeTab = (targetName) => {
-		console.log(targetName)
 		const tabs_copy = tabs.value;
 		let activeName = tabsValue.value;
 		if (activeName === targetName) {
@@ -294,6 +379,119 @@
 		index_tb = parseInt(index_tb)
 		current_table.value = databases[index_db].tables[index_tb].name
 	}
+	const showAppendForm = ref(false)
+	var form_dbName = ref("");
+	var form_tbName = ref("");
+	var form_req = {}
+	const submitable = computed(() => {
+		for (const column of databases[db_dic[form_dbName.value]].tables[tb_dic[form_dbName.value][form_tbName
+				.value
+			]].columns) {
+			if (isNull(form_data[column.columnName].match(form_req[column.columnName]))) {
+				return false
+			}
+		}
+		return true
+	})
+	const form_data = reactive({})
+	const appendRow = (dbName, tbName) => {
+		showAppendForm.value = true;
+		form_dbName.value = dbName;
+		form_tbName.value = tbName;
+		Object.keys(form_data).forEach((key) => {
+			delete form_data[key];
+		})
+		for (const column of databases[db_dic[form_dbName.value]].tables[tb_dic[form_dbName.value][form_tbName.value]]
+				.columns) {
+			form_data[column.columnName] = ""
+			const columnType = column.columnType;
+			let inputPattern = /^[\S\s]*$/;
+			if (columnType == "int") {
+				inputPattern = /^([1-9][0-9]*|0)$/
+			} else if (columnType == "double") {
+				inputPattern = /^([1-9][0-9]*|0)(.[0-9]*[1-9])?$/
+			} else {
+				let ans = columnType.match(/^varchar\(([1-9][0-9]*)\)$/)
+				if (!isNull(ans)) {
+					inputPattern = new RegExp(`^[\\S\\s]{0,${ans[1]}}$`);
+				} else {
+					ans = columnType.match(/^char\(([1-9][0-9]*)\)$/)
+					if (!isNull(ans))
+						inputPattern = new RegExp(`^[\\S\\s]{0,${ans[1]}}$`);
+				}
+			}
+			form_req[column.columnName] = inputPattern
+		}
+	}
+	const submitForm = async () => {
+		if (!submitable.value) {
+			ElMessage.error("Incomplete data.");
+		}
+		let columnName = ``
+		let value = ``
+		for (const column of databases[db_dic[form_dbName.value]].tables[tb_dic[form_dbName.value][form_tbName
+				.value
+			]].columns) {
+			columnName = `${columnName}${column.columnName},`
+			value = `${value}${form_data[column.columnName]},`
+		}
+		columnName = columnName.replace(/,$/, '');
+		value = value.replace(/,$/, '')
+		try {
+			await sqlRequest(`use database ${form_dbName.value};`)
+			await sqlRequest(`insert into ${form_tbName.value}(${columnName}) values(${value});`)
+			ElMessage({
+				type: "success",
+				message: "Insert success.",
+				duration: 1000
+			})
+			refresh();
+		} catch (e) {
+			ElMessage.error(e.message)
+		}
+		showAppendForm.value = false;
+	}
+	const removeRow = async (dbName, tbName, index) => {
+		ElMessageBox.confirm(
+				"This operation will permanently delete this row, continue?", 'Confirm', {
+					confirmButtonText: 'OK',
+					cancelButtonText: 'Cancel',
+					type: 'warning',
+					center: true,
+				}
+			)
+			.then(() => {
+				try {
+					let requestData = JSON.stringify({
+						dbName: dbName,
+						tbName: tbName,
+						deleteIndex: index
+					});
+					axios.post(`http://${recentConnect.url}/sql/delete`, requestData, {
+						headers: {
+							'Content-Type': 'application/json'
+						}
+					}).then(() => {
+						ElMessage({
+							type: 'success',
+							message: 'Delete completed',
+							duration: 1000
+						});
+						databases[db_dic[rightClickDatabase]].tables[tb_dic[dbName][tbName]].data
+							.splice(index, 1);
+						refresh()
+					})
+				} catch (e) {
+					ElMessage({
+						type: 'error',
+						message: e.message,
+						duration: 3000
+					})
+					return
+				}
+
+			}).catch(e=>console.log(e.message))
+	}
 	// 右键表
 	const showTableMenu = ref(false);
 	const tPosition = ref(0)
@@ -308,31 +506,138 @@
 		rightClickDatabase = databases[index_db].name
 		rightClickTable = databases[index_db].tables[index_tb].tableName
 		showValueMenu.value = false;
-		showTableMenu.value = true
+		showTableMenu.value = true;
 		tPosition.value = event.clientY;
 		lPosition.value = event.clientX;
 	}
-
-	const newTable = () => {
-		tabs.value.push({
-			title: "New Table"
+	// 新建表
+	const newTableDatabase = ref("")
+	const newTableName = ref("")
+	const newTablecolumn = reactive([])
+	const unsubmitable = computed(() => {
+		if (!newTableName.value || isNull(newTableName.value.match(/^[A-z][\S]*$/)))
+			return true
+		if (newTablecolumn.length == 0)
+			return true
+		for (const column of newTablecolumn) {
+			if (isNull(column.columnName.match(/^[A-z][\S]*$/)))
+				return true
+			if (isNull(column.columnType.match(
+					/^double|int|(varchar\(([1-9][0-9]*)\))|(char\(([1-9][0-9]*)\))$/)))
+				return true
+		}
+		return false
+	})
+	const addTable = async () => {
+		if (unsubmitable.value) {
+			ElMessage.error("Incomplete data.")
+		}
+		try {
+			await sqlRequest(`use database ${newTableDatabase.value};`)
+		} catch (e) {
+			//TODO handle the exception
+		}
+		let sql = `create table ${newTableName.value} (`
+		for (const column of newTablecolumn) {
+			sql = `${sql}${column.columnName} ${column.columnType},`
+		}
+		sql = sql.replace(/,$/, '');
+		sql = `${sql});`
+		try {
+			await sqlRequest(sql)
+		} catch (e) {
+			ElMessage.error(e.message)
+		}
+		ElMessage({
+			type: "success",
+			message: "Create success.",
+			duration: 1000
 		})
+		removeTab("New Table")
+		getDataBases()
 	}
-	const altTable = () => {
+	const newTable = () => {
+		newTableDatabase.value = rightClickDatabase
+		for (const tab of tabs.value) {
+			if (tab.title == "New Table") {
+				tabsValue.value = "New Table"
+				return
+			}
+		}
 		tabs.value.push({
-			title: `Edit ${rightClickTable}`
+			title: "New Table",
+			type: "2"
 		})
+		newTablecolumn.splice(0, newTablecolumn.length)
+		newTablecolumn.push({
+			columnName: "",
+			columnType: ""
+		})
+		tabsValue.value = "New Table"
+	}
+	const removeColumn = (index) => {
+		newTablecolumn.splice(index, 1)
 	}
 	const reloadTable = async (db_index, tb_index) => {
 		try {
 			const response = await axios.get(
-				`http://${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`)
+				`http://${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`
+			)
 			databases[db_index].tables[tb_index].data = response.data
 			databases[db_index].tables[tb_index].is_activate = true
+			ElMessage({
+				type: "success",
+				message: "Successful acquisiton of table data.",
+				duration: 1000
+			})
 			return true
-		} catch (error) {
-			alert(error); // 捕获错误并进行处理
+		} catch (e) {
+			ElMessage({
+				type: "error",
+				message: e.message,
+				duration: 3000
+			})
 			return false
+		}
+	}
+	const loading = ref(false)
+	const togglePrimaryKeyHandle = (dbName, tbName, columnName) => {
+		return async function() {
+			loading.value = true
+			let columns = databases[db_dic[dbName]].tables[tb_dic[dbName][tbName]]
+				.columns;
+			for (let i = 0; i < columns.length; i++) {
+				const column = columns[i];
+				if (column.columnName == columnName) {
+					if (column.isPrimaryKey == true) {
+						try {
+							await sqlRequest(`use database ${dbName};`);
+							await sqlRequest(`drop index on ${tbName};`);
+							loading.value = false
+							return true;
+						} catch (e) {
+							ElMessage.error(e.message)
+							loading.value = false
+							return false;
+						}
+					}
+				}
+				if (column.isPrimaryKey == true) {
+					ElMessage.error("Primary Key already exists.")
+					loading.value = false
+					return false;
+				}
+			}
+			try {
+				await sqlRequest(`use database ${dbName};`);
+				await sqlRequest(`create index on ${tbName} (${columnName});`);
+				loading.value = false
+				return true;
+			} catch (e) {
+				ElMessage.error(e.message)
+				loading.value = false
+				return false;
+			}
 		}
 	}
 	const viewTable = async () => {
@@ -369,7 +674,8 @@
 		for (const tab of tabs.value) {
 			if (tab.type != "1")
 				continue;
-			let originalData = databases[db_dic[tab.database_name]].tables[tb_dic[tab.database_name][tab
+			let originalData = databases[db_dic[tab.database_name]].tables[tb_dic[tab
+				.database_name][tab
 				.table_name
 			]].data;
 			let data = JSON.parse(JSON.stringify(originalData))
@@ -401,17 +707,20 @@
 				} catch (e) {
 					ElMessage({
 						type: 'error',
-						message: 'Bad Network',
+						message: e.message,
+						duration: 3000
 					})
 					return
 				}
 				ElMessage({
 					type: 'success',
 					message: 'Delete completed',
+					duration: 1000
 				})
-				databases[db_dic[rightClickDatabase]].tables.splice(tb_dic[rightClickDatabase][rightClickTable], 1)
+				databases[db_dic[rightClickDatabase]].tables.splice(tb_dic[
+					rightClickDatabase][rightClickTable], 1)
 				setDic()
-			})
+			}).catch(e=>console.log(e.message))
 	}
 	// 右键值
 	const showValueMenu = ref(false)
@@ -435,41 +744,49 @@
 		let inputPattern = /^[\S\s]*$/;
 		if (rightClickType == "int") {
 			inputPattern = /^([1-9][0-9]*|0)$/
+		} else if (rightClickType == "double") {
+			inputPattern = /^([1-9][0-9]*|0)(.[0-9]*[1-9])?$/
 		} else {
-			let ans = rightClickType.match(/^varchar\(([1-9][0-9]*|0)\)$/)
+			let ans = rightClickType.match(/^varchar\(([1-9][0-9]*)\)$/)
 			if (!isNull(ans)) {
 				inputPattern = new RegExp(`^[\\S\\s]{0,${ans[1]}}$`);
+			} else {
+				ans = rightClickType.match(/^char\(([1-9][0-9]*)\)$/)
+				if (!isNull(ans))
+					inputPattern = new RegExp(`^[\\S\\s]{0,${ans[1]}}$`);
 			}
 		}
 		ElMessageBox.prompt(
-				`Please input new value for ${rightClickLabel}`, "Edit Value", {
-					confirmButtonText: 'OK',
-					cancelButtonText: 'Cancel',
-					inputPattern: inputPattern,
-					inputErrorMessage: 'Invalid Value',
-				}).then(({
-				value
-			}) => {
-				let update_copy = tabs.value[rightClickTab].data.update
-				for (let i = 0; i < update_copy.length; i++) {
-					if (update_copy[i].index == rigthClickRow) {
-						tabs.value[rightClickTab].data.update[i].data[rightClickLabel] = value;
-						return true;
-					}
+			`Please input new value for ${rightClickLabel}`, "Edit Value", {
+				confirmButtonText: 'OK',
+				cancelButtonText: 'Cancel',
+				inputPattern: inputPattern,
+				inputErrorMessage: 'Invalid Value',
+			}).then(({
+			value
+		}) => {
+			let update_copy = tabs.value[rightClickTab].data.update
+			for (let i = 0; i < update_copy.length; i++) {
+				if (update_copy[i].index == rigthClickRow) {
+					tabs.value[rightClickTab].data.update[i].data[rightClickLabel] =
+						value;
+					return true;
 				}
-				let temp = {
-					index: rigthClickRow,
-					data: {}
-				}
-				temp.data[rightClickLabel] = value;
-				tabs.value[rightClickTab].data.update.push(temp);
-			})
-			.catch(error => console.log(error))
+			}
+			let temp = {
+				index: rigthClickRow,
+				data: {}
+			}
+			temp.data[rightClickLabel] = value;
+			tabs.value[rightClickTab].data.update.push(temp);
+		}).catch(e=>{
+			console.log(e)
+		})
 	}
 	const restoreValue = () => {
-		let updata_copy = tabs.value[rightClickTab].data.update
-		for (let i = 0; i < updata_copy.length; i++) {
-			if (updata_copy[i].index == rigthClickRow) {
+		let update_copy = tabs.value[rightClickTab].data.update
+		for (let i = 0; i < update_copy.length; i++) {
+			if (update_copy[i].index == rigthClickRow) {
 				delete tabs.value[rightClickTab].data.update[i].data[rightClickLabel]
 			}
 		}
@@ -482,21 +799,12 @@
 				break;
 			}
 		}
-		try {
-			let tab = tabs.value[tab_index]
-			reloadTable(db_dic[tab.database_name], tb_dic[tab.database_name][tab.table_name]);
-		} catch (e) {
-			ElMessage({
-				type: "error",
-				message: "Get table data fail."
-			})
-		}
-		tabs.value[tab_index].data = {
-			update: [],
-			new: []
-		}
-
-		// 重新加载数据库内容
+		let tab = tabs.value[tab_index]
+		if (reloadTable(db_dic[tab.database_name], tb_dic[tab.database_name][tab.table_name]))
+			tabs.value[tab_index].data = {
+				update: [],
+				new: []
+			}
 	}
 	const submit = () => {
 		let tab_index = -1;
@@ -506,8 +814,6 @@
 				break;
 			}
 		}
-		console.log(tab_index)
-		console.log(tabsValue.value)
 		if (tab_index == -1) {
 			throw new Error("Cannot find current tab.")
 		}
@@ -515,20 +821,32 @@
 		const data_copy = tabs.value[tab_index].data;
 		const dbName = tabs.value[tab_index].database_name;
 		const tbName = tabs.value[tab_index].table_name
-		for (let i = 0; i < data_copy.update.length; i++) {
-			const update_data = data_copy.update[i];
-			let requestData = JSON.stringify({
-				dbName: dbName,
-				tbName: tbName,
-				updataIndex: update_data.index,
-				updateKeyValue: update_data.data
+		try {
+			for (let i = 0; i < data_copy.update.length; i++) {
+				const update_data = data_copy.update[i];
+				let requestData = JSON.stringify({
+					dbName: dbName,
+					tbName: tbName,
+					updateIndex: update_data.index,
+					updateKeyValue: update_data.data
+				})
+				console.log(requestData)
+				axios.post(`http://${recentConnect.url}/sql/update`, requestData, {
+					headers: {
+						'Content-Type': 'application/json'
+					}
+				})
+			}
+			ElMessage({
+				type: "success",
+				message: "Data updated.",
+				duration: 1000
 			})
-			axios.post(`http://${recentConnect.url}/sql/update`, requestData, {
-				headers: {
-					'Content-Type': 'application/json'
-				}
-			}).then(rspn => {
-				console.log(rspn.data)
+		} catch (e) {
+			ElMessage({
+				type: "error",
+				message: e.message,
+				duration: 3000
 			})
 		}
 		refresh();
@@ -557,6 +875,14 @@ select * from rjj;`)
 		})
 		tabsValue.value = "Sql Query";
 	}
+	const clearSql = () => {
+		Object.keys(sqlResult).forEach(key => {
+			delete sqlResult[key]
+		})
+		Object.keys(sqlType).forEach(key => {
+			delete sqlType[key]
+		})
+	}
 	const runFullSql = async () => {
 		sqlRunning.value = true;
 		Object.keys(sqlType).forEach(key => {
@@ -570,7 +896,6 @@ select * from rjj;`)
 				break
 			}
 		}
-		console.log(sqlType)
 		sqlRunning.value = false;
 	}
 	const runSql = async (index, sql) => {
@@ -578,7 +903,7 @@ select * from rjj;`)
 		delete sqlResult[index];
 		try {
 			const rspn = await sqlRequest(sql)
-			sqlResult[index] = rspn
+			sqlResult[index] = rspn;
 			sqlType[index] = "success"
 		} catch (e) {
 			sqlResult[index] = e.message
@@ -727,18 +1052,30 @@ select * from rjj;`)
 		margin-top: 0.5rem;
 	}
 
+	.new-tab {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.new-tab>div {
+		display: flex;
+		flex-direction: row;
+		align-content: center;
+	}
+
+	.new-tab>div+div {
+		margin-top: 0.5rem;
+	}
+
 	.sql-tab>div {
 		margin-top: 0.25rem;
 	}
 
 	.sql-block {
 		display: flex;
-		flex-direction: row;
+		flex-direction: column;
 		flex-wrap: nowrap;
 		align-items: flex-start;
-	}
-
-	.sql-block>div {
-		margin-left: 0.25rem;
 	}
 </style>

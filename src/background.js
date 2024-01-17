@@ -12,6 +12,7 @@ import {
 import installExtension, {
 	VUEJS3_DEVTOOLS
 } from 'electron-devtools-installer'
+const path = require('path');
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
 // Scheme must be registered before the app is ready
@@ -29,6 +30,7 @@ async function createWindow() {
 		height: 600,
 		minWidth: 400, // 设置最小宽度
 		minHeight: 300, // 设置最小高度
+		icon: path.join(__dirname, 'build', 'icon.ico'),
 		// autoHideMenuBar: true,
 		webPreferences: {
 			nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION,
