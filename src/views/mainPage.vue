@@ -260,7 +260,7 @@
 		router.push('/')
 	}
 	const sqlRequest = async (sql) => {
-		const response = await axios.post(`http://${recentConnect.url}/sql/execute`, JSON.stringify({
+		const response = await axios.post(`${recentConnect.url}/sql/execute`, JSON.stringify({
 			sql: sql
 		}), {
 			headers: {
@@ -328,7 +328,7 @@
 	}
 	const loadDataBase = async (index) => {
 		try {
-			const response = await axios.get(`http://${recentConnect.url}/sql/${databases[index].name}`)
+			const response = await axios.get(`${recentConnect.url}/sql/${databases[index].name}`)
 			databases[index].tables = response.data
 		} catch (error) {
 			alert(error); // 捕获错误并进行处理
@@ -467,7 +467,7 @@
 						tbName: tbName,
 						deleteIndex: index
 					});
-					axios.post(`http://${recentConnect.url}/sql/delete`, requestData, {
+					axios.post(`${recentConnect.url}/sql/delete`, requestData, {
 						headers: {
 							'Content-Type': 'application/json'
 						}
@@ -581,7 +581,7 @@
 	const reloadTable = async (db_index, tb_index) => {
 		try {
 			const response = await axios.get(
-				`http://${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`
+				`${recentConnect.url}/sql/${rightClickDatabase}/${rightClickTable}`
 			)
 			databases[db_index].tables[tb_index].data = response.data
 			databases[db_index].tables[tb_index].is_activate = true
@@ -831,7 +831,7 @@
 					updateKeyValue: update_data.data
 				})
 				console.log(requestData)
-				axios.post(`http://${recentConnect.url}/sql/update`, requestData, {
+				axios.post(`${recentConnect.url}/sql/update`, requestData, {
 					headers: {
 						'Content-Type': 'application/json'
 					}
@@ -852,10 +852,7 @@
 		refresh();
 	}
 	// 自定义Sql:
-	const sqlInput = ref(`show databases;
-use database rjjsss;
-show tables;
-select * from rjj;`)
+	const sqlInput = ref("")
 	const sqlResult = reactive({})
 	const sqlType = reactive({})
 	const sqlRunning = ref(false)

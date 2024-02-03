@@ -1,6 +1,7 @@
 <template>
 	<el-scrollbar class="container">
-		<el-card shadow="hover" class="addItem" @click="show_dialog = true;">
+		<el-card shadow="hover" class="addItem"
+			@click="new_connect_account= ``;new_connect_name = ``;new_connect_password =``;new_connect_url=`http://`;show_dialog = true;">
 			<el-text class="icon-inline" type="primary" size="large">
 				<svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" data-v-ea893728="">
 					<path fill="currentColor"
@@ -10,7 +11,8 @@
 				<span>CREATE NEW CONNECT</span>
 			</el-text>
 		</el-card>
-		<el-card shadow="hover" class="connectItem" v-for="(item,index) in connects" :key="index">
+		<el-card shadow="hover" class="connectItem" v-for="(item,index) in connects" :key="index"
+			@mouseup="clickItem($event,index)">
 			<div class="descriptions">
 				<div><el-text type="primary" size="large">{{item.name}}</el-text></div>
 				<div class="inlineB" :style="{width : descriptWidth}">
@@ -21,8 +23,10 @@
 				</div>
 			</div>
 			<div class="operate">
-				<router-link :to="item.name"><el-button plain>Open</el-button></router-link>
-				<el-button plain @click="removeConnect(item.name)" style="margin-left: 1rem;">Remove</el-button>
+				<el-button type="primary" plain @click="connect(item)">Open</el-button>
+				<!-- <router-link :to="item.name"><el-button plain>Open</el-button></router-link> -->
+				<el-button type="danger" plain @click="removeConnect(item.name)"
+					style="margin-left: 1rem;">Remove</el-button>
 			</div>
 			<el-text type="info">{{new Date(item.date).toLocaleDateString()}}</el-text>
 		</el-card>
@@ -50,7 +54,7 @@
 		</el-form>
 		<template #footer>
 			<span>
-				<el-button @click="show_dialog = false">CANCEL</el-button>
+				<el-button @click="show_dialog = false;alt_connect = false">CANCEL</el-button>
 				<el-button type="primary" @click="createConnect();">CONNECT</el-button>
 			</span>
 		</template>
@@ -62,12 +66,16 @@
 		ref,
 		onMounted
 	} from 'vue'
-	// import axios from '../axios.js'
+	import axios from '../axios.js'
 	import throttle from 'lodash/throttle'
 	import {
 		ElMessage,
 		ElMessageBox
 	} from 'element-plus'
+	import {
+		useRouter
+	} from 'vue-router'
+	const router = useRouter()
 	let connectNames = JSON.parse(localStorage.getItem('connects'))
 	var newConnectNames = [];
 	let connectTemp = [];
@@ -82,7 +90,7 @@
 			}
 		}
 		connectTemp.sort((a, b) => {
-			return a.date - b.date;
+			return b.date - a.date;
 		})
 		localStorage.setItem('connects', JSON.stringify(newConnectNames));
 	}
@@ -94,25 +102,88 @@
 	const new_connect_url = ref('');
 	const new_connect_account = ref('');
 	const new_connect_password = ref('');
+	const connect = (connectInfo) => {
+		axios.post(`${connectInfo.url}/user/login`, JSON.stringify({
+			username: connectInfo.account,
+			password: connectInfo.password
+		}), {
+			headers: {
+				'Content-Type': 'application/json'
+			}
+		}).then(rspn => {
+			if (rspn.data) {
+				ElMessage({
+					type: "success",
+					message: "Log in successed.",
+					duration: 1000
+				})
+				router.push(`/${connectInfo.name}`)
+				return
+			}
+			ElMessage.error("Log in failed.")
+		}).catch(e => ElMessage.error(e.message))
+	}
 	const createConnect = () => {
-		if (newConnectNames.includes(new_connect_name.value)) {
-			ElMessage.error(`"${new_connect_name.value}" already taken.`)
-			return;
+		if (!alt_connect) {
+			if (newConnectNames.includes(new_connect_name.value)) {
+				ElMessage.error(`"${new_connect_name.value}" already taken.`)
+				return;
+			}
+			let connectInfo = {
+				name: new_connect_name.value,
+				url: new_connect_url.value,
+				account: new_connect_account.value,
+				password: new_connect_password.value,
+				date: Date.now()
+			}
+			localStorage.setItem(new_connect_name.value, JSON.stringify(connectInfo))
+			connects.value = [connectInfo, ...connects.value]
+			newConnectNames.push(new_connect_name.value);
+			localStorage.setItem('connects', JSON.stringify(newConnectNames));
+			show_dialog.value = false
+		} else {
+			if (newConnectNames.includes(new_connect_name.value) && new_connect_name.value != alt_connect_name) {
+				ElMessage.error(`"${new_connect_name.value}" already taken.`)
+				return;
+			}
+			removeConnect(alt_connect_name)
+			let connectInfo = {
+				name: new_connect_name.value,
+				url: new_connect_url.value,
+				account: new_connect_account.value,
+				password: new_connect_password.value,
+				date: Date.now()
+			}
+			localStorage.setItem(new_connect_name.value, JSON.stringify(connectInfo))
+			connects.value = [connectInfo, ...connects.value]
+			newConnectNames.push(new_connect_name.value);
+			localStorage.setItem('connects', JSON.stringify(newConnectNames));
+			show_dialog.value = false
+			alt_connect = false;
 		}
-		let connectInfo = {
-			name: new_connect_name.value,
-			url: new_connect_url.value,
-			account: new_connect_account.value,
-			password: new_connect_password.value,
-			date: Date.now()
-		}
-		localStorage.setItem(new_connect_name.value, JSON.stringify(connectInfo))
-		connects.value = [connectInfo, ...connects.value]
-		newConnectNames.push(new_connect_name.value);
-		localStorage.setItem('connects', JSON.stringify(newConnectNames));
-		show_dialog.value = false
+	}
+	var alt_connect_name = ""
+	var alt_connect = false
+	const clickItem = (event, index) => {
+		if (event.button != 2) return;
+		alt_connect = true;
+		const connect = connects.value[index];
+		alt_connect_name = connect.name
+		new_connect_account.value = connect.account;
+		new_connect_password.value = connect.password;
+		new_connect_url.value = connect.url;
+		new_connect_name.value = connect.name;
+		show_dialog.value = true;
 	}
 	const removeConnect = (remove_connect_name) => {
+		if (alt_connect) {
+			newConnectNames = newConnectNames.filter((item) => item != remove_connect_name);
+			localStorage.removeItem(remove_connect_name)
+			connectTemp = connectTemp.filter((item) => item.name != remove_connect_name)
+			connects.value = [...connectTemp]
+			localStorage.setItem('connects', JSON.stringify(newConnectNames));
+			return
+		}
 		ElMessageBox.confirm(
 				`"${remove_connect_name}" will be permanenttly removed. Continue?`,
 				'warning', {
@@ -122,6 +193,11 @@
 				}
 			)
 			.then(() => {
+				newConnectNames = newConnectNames.filter((item) => item != remove_connect_name);
+				localStorage.removeItem(remove_connect_name)
+				connectTemp = connectTemp.filter((item) => item.name != remove_connect_name)
+				connects.value = [...connectTemp]
+				localStorage.setItem('connects', JSON.stringify(newConnectNames));
 				ElMessage({
 					type: 'success',
 					message: `"${remove_connect_name} has been removed.`,

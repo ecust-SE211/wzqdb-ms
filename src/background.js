@@ -31,7 +31,7 @@ async function createWindow() {
 		minWidth: 400, // 设置最小宽度
 		minHeight: 300, // 设置最小高度
 		icon: path.join(__dirname, 'build', 'icon.ico'),
-		// autoHideMenuBar: true,
+		autoHideMenuBar: true,
 		webPreferences: {
 			nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION,
 			contextIsolation: !process.env.ELECTRON_NODE_INTEGRATION,
